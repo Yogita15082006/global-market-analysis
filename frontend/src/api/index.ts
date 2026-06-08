@@ -12,8 +12,12 @@ function normalizeAnalysisParams(params?: { limit?: number; offset?: number }) {
 }
 
 export const eventsApi = {
-  list: (params?: { limit?: number; offset?: number; source?: string }) =>
-    apiClient.get<EventsListResponse>("/api/events", { params }).then((r) => r.data),
+  list: (params?: { limit?: number; offset?: number; source?: string; search?: string }) => {
+    const q = params?.search;
+    const req = { ...params, q };
+    delete req.search;
+    return apiClient.get<EventsListResponse>("/api/events", { params: req }).then((r) => r.data);
+  },
   listUnanalyzed: (params?: { limit?: number; offset?: number }) =>
     apiClient.get<EventsListResponse>("/api/events/unanalyzed", { params }).then((r) => r.data),
   triggerFetch: () => apiClient.post("/api/events/fetch").then((r) => r.data),
@@ -24,6 +28,8 @@ export const analysisApi = {
     apiClient.get<AnalysisListResponse>("/api/analysis/", { params: normalizeAnalysisParams(params) }).then((r) => r.data),
   triggerRun: (batchSize?: number) =>
     apiClient.post("/api/analysis/run", null, { params: { batch_size: batchSize } }).then((r) => r.data),
+  generateForEvent: (eventId: string) =>
+    apiClient.post<{ status: string; analysis?: unknown; error?: string }>(`/api/analysis/${eventId}/generate`).then((r) => r.data),
 };
 
 export const authApi = {
@@ -37,4 +43,17 @@ export const authApi = {
 export const chatApi = {
   ask: (question: string) =>
     apiClient.post<ChatAskResponse>("/api/chat/ask", { question }).then((r) => r.data),
+};
+
+export const analyticsApi = {
+  sources: () => apiClient.get("/api/analytics/sources").then((r) => r.data),
+};
+
+export const briefingsApi = {
+  list: (params?: { limit?: number; offset?: number }) =>
+    apiClient.get("/api/briefings/", { params }).then((r) => r.data),
+};
+
+export const marketApi = {
+  live: () => apiClient.get("/api/market").then((r) => r.data),
 };

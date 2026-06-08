@@ -7,6 +7,9 @@ export interface Event {
   published_at?: string;
   created_at?: string;
   is_analyzed?: boolean;
+  relevance_score?: number;
+  intelligence_priority?: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | string;
+  source_count?: number;
 }
 
 export interface Analysis {
@@ -26,6 +29,19 @@ export interface Analysis {
   events?: Event;
   created_at?: string;
   generated_at?: string;
+  why_this_matters?: string;
+  strategic_significance?: string;
+  bull_case?: string;
+  bear_case?: string;
+  consensus_view?: string;
+  historical_comparisons?: string;
+  future_scenarios?: string;
+  countries_impacted?: string[];
+  supporting_sources?: string;
+  contradicting_sources?: string;
+  ai_reasoning?: string;
+  timeline?: string;
+  key_actors?: string;
 }
 
 export interface EventWithAnalysis extends Event {

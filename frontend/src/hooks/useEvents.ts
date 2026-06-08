@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { analysisApi, eventsApi } from "@/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { analysisApi, eventsApi, analyticsApi } from "@/api";
 import type { Analysis, EventWithAnalysis } from "@/types";
 
-export function useEvents(params?: { limit?: number; source?: string }) {
+export function useEvents(params?: { limit?: number; source?: string; search?: string }) {
   return useQuery({
     queryKey: ["events", params],
     queryFn: () => eventsApi.list(params),
@@ -45,5 +45,26 @@ export function useUnanalyzedEvents(params?: { limit?: number; offset?: number }
     queryKey: ["events", "unanalyzed", params],
     queryFn: () => eventsApi.listUnanalyzed(params),
     refetchInterval: 60_000,
+  });
+}
+
+export function useSourceAnalytics() {
+  return useQuery({
+    queryKey: ["analytics", "sources"],
+    queryFn: () => analyticsApi.sources(),
+    refetchInterval: 120_000,
+  });
+}
+
+export function useGenerateAnalysis() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) => analysisApi.generateForEvent(eventId),
+    onSuccess: (_data, eventId) => {
+      // Invalidate all relevant queries so the UI reflects new analysis
+      queryClient.invalidateQueries({ queryKey: ["event", eventId] });
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["analysis"] });
+    },
   });
 }

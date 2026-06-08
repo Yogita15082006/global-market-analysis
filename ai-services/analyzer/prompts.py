@@ -44,7 +44,15 @@ Respond with ONLY valid JSON matching this exact schema (no markdown, no extra k
       "confidence": 0-100,
       "reason": "event-specific causal explanation"
     }
-  ]
+  ],
+  "why_this_matters": "Brief explanation",
+  "strategic_significance": "Strategic impact",
+  "bull_case": "Bull case scenario",
+  "bear_case": "Bear case scenario",
+  "consensus_view": "Consensus view",
+  "historical_comparisons": "Historical parallel",
+  "future_scenarios": "Future scenarios",
+  "countries_impacted": ["Country1", "Country2"]
 }
 
 Rules:

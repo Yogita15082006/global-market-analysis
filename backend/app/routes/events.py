@@ -17,9 +17,32 @@ async def trigger_news_fetch() -> NewsFetchStats:
 async def list_events(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    search_query: str | None = Query(default=None, alias="q"),
+    country: str | None = Query(default=None),
+    region: str | None = Query(default=None),
+    asset: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    sector: str | None = Query(default=None),
+    risk_level: str | None = Query(default=None),
+    from_date: str | None = Query(default=None),
+    to_date: str | None = Query(default=None),
+    category: str | None = Query(default=None),
 ) -> EventsListResponse:
-    """List latest events with pagination."""
-    result = news_service.list_events(limit=limit, offset=offset)
+    """List latest events with pagination and filters."""
+    result = news_service.list_events(
+        limit=limit, 
+        offset=offset,
+        search_query=search_query,
+        country=country,
+        region=region,
+        asset=asset,
+        source=source,
+        sector=sector,
+        risk_level=risk_level,
+        from_date=from_date,
+        to_date=to_date,
+        category=category,
+    )
     return EventsListResponse(**result)
 
 

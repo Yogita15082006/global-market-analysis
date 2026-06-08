@@ -31,7 +31,7 @@ BOOST_ASSET_TERM_FIELD = 4
 GENERAL_IMPORTANCE_DIVISOR = 25
 PENALTY_FALSE_POSITIVE = 50
 PENALTY_WEAK_ASSET_RELEVANCE = 25
-MIN_ASSET_FIELD_RELEVANCE = 8
+MIN_ASSET_FIELD_RELEVANCE = 2
 DIVERSITY_BONUS_NEW_CATEGORY = 10
 DIVERSITY_PENALTY_TITLE_OVERLAP = 18
 DIVERSITY_PENALTY_SAME_CATEGORY = 8
@@ -399,7 +399,7 @@ def _asset_field_relevance(row: dict[str, Any], intent: QueryIntent) -> int:
     if not intent.detected_assets:
         return 0
     score = 0
-    for field in ("impact_on_india", "market_impacts", "affected_sectors", "summary"):
+    for field in ("title", "key_points", "summary", "impact_on_india", "market_impacts", "affected_sectors"):
         text = _field_text(row, field)
         for asset in intent.detected_assets:
             profile = get_profile(asset)
@@ -415,6 +415,7 @@ def _asset_field_relevance(row: dict[str, Any], intent: QueryIntent) -> int:
 def _diversity_adjustment(
     row: dict[str, Any],
     selected: list[dict[str, Any]],
+    intent: QueryIntent,
 ) -> int:
     if not selected:
         return 0
@@ -433,6 +434,22 @@ def _diversity_adjustment(
         if overlap >= TITLE_OVERLAP_THRESHOLD:
             adjustment -= DIVERSITY_PENALTY_TITLE_OVERLAP
 
+    if intent.detected_assets and len(intent.detected_assets) > 1:
+        row_assets = set()
+        for a in intent.detected_assets:
+            if a in market_impact_assets(row) or a in affected_sectors(row) or term_matches(_field_text(row, "title"), a.lower()) or term_matches(_field_text(row, "summary"), a.lower()):
+                row_assets.add(a)
+        
+        selected_assets = set()
+        for item in selected:
+            for a in intent.detected_assets:
+                if a in market_impact_assets(item) or a in affected_sectors(item) or term_matches(_field_text(item, "title"), a.lower()) or term_matches(_field_text(item, "summary"), a.lower()):
+                    selected_assets.add(a)
+                    
+        uncovered = intent.detected_assets - selected_assets
+        if row_assets & uncovered:
+            adjustment += 60  # Large boost to ensure all requested subjects are covered
+            
     return adjustment
 
 
@@ -543,7 +560,7 @@ def retrieve_events(
         best_index = 0
         best_adjusted = -9999
         for index, (scored, row) in enumerate(remaining):
-            adjusted = scored.total + _diversity_adjustment(row, selected)
+            adjusted = scored.total + _diversity_adjustment(row, selected, intent)
             if adjusted > best_adjusted:
                 best_adjusted = adjusted
                 best_index = index

@@ -1,0 +1,52 @@
+.dash-page { min-height: 100vh; }
+
+.dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.dash-header-left h1 {
+  font-size: clamp(1.05rem, 2vw, 1.4rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.dash-header-left p {
+  margin-top: 3px;
+  font-size: 0.7rem;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.dash-search {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(255,255,255,0.025);
+  color: var(--text);
+  font-size: 0.74rem;
+  width: 180px;
+  transition: border-color 100ms;
+}
+
+.dash-search:focus {
+  outline: none;
+  border-color: rgba(200,168,75,0.4);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .dash-grid { grid-template-columns: 1fr; }
+  .dash-sidebar { position: static; grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .dash-sidebar { grid-template-columns: 1fr; }
+  .metric-strip { gap: 10px; }
+  .metric-inline-value { font-size: 1.1rem; }
+}

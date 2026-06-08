@@ -43,6 +43,35 @@ def start_scheduler() -> None:
         id="news_collection",
         replace_existing=True,
     )
+    
+    # Add Phase 9 automation jobs
+    from app.services.momentum_service import MomentumService
+    from app.services.briefing_service import BriefingService
+    
+    async def run_momentum():
+        await MomentumService().snapshot_all_active_events()
+        
+    async def run_morning_brief():
+        await BriefingService().generate_daily_briefing("morning")
+        
+    async def run_evening_brief():
+        await BriefingService().generate_daily_briefing("evening")
+
+    async def run_weekly_brief():
+        await BriefingService().generate_daily_briefing("weekly")
+
+    # Momentum every 12 hours
+    scheduler.add_job(run_momentum, "interval", hours=12, id="momentum_snapshots", replace_existing=True)
+    
+    # Morning brief at 7:00 AM UTC
+    scheduler.add_job(run_morning_brief, "cron", hour=7, minute=0, id="morning_brief", replace_existing=True)
+    
+    # Evening brief at 19:00 PM UTC
+    scheduler.add_job(run_evening_brief, "cron", hour=19, minute=0, id="evening_brief", replace_existing=True)
+    
+    # Weekly brief on Sunday 20:00 UTC
+    scheduler.add_job(run_weekly_brief, "cron", day_of_week="sun", hour=20, minute=0, id="weekly_brief", replace_existing=True)
+
     scheduler.start()
     logger.info("News scheduler started", extra={"interval_minutes": interval})
 

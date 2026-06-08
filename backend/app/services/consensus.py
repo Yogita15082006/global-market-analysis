@@ -43,6 +43,16 @@ def _impacts_for_asset(row: dict[str, Any], asset: str) -> list[dict[str, Any]]:
     ]
 
 
+def _source_weight(source: str) -> float:
+    s = source.lower()
+    if "reuters" in s: return 1.0
+    if "ap" in s or "associated press" in s: return 1.0
+    if "marketaux" in s: return 0.9
+    if "bbc" in s: return 0.9
+    if "cnbc" in s: return 0.8
+    if "gnews" in s: return 0.6
+    return 0.5
+
 def build_asset_consensus(
     rows: list[dict[str, Any]],
     detected_assets: set[str],
@@ -52,6 +62,10 @@ def build_asset_consensus(
     for asset in sorted(detected_assets):
         entries: list[EventOutlook] = []
         for row in rows:
+            event_obj = row.get("events") or {}
+            source_str = str(event_obj.get("source") or "Unknown")
+            weight = _source_weight(source_str)
+
             for impact in _impacts_for_asset(row, asset):
                 outlook = str(impact.get("outlook") or "neutral").lower()
                 if outlook not in OUTLOOK_SCORES:
@@ -61,6 +75,10 @@ def build_asset_consensus(
                     confidence_f = float(confidence)
                 except (TypeError, ValueError):
                     confidence_f = 50.0
+                
+                # Apply source weighting
+                confidence_f *= weight
+
                 entries.append(
                     EventOutlook(
                         title=_event_title(row),

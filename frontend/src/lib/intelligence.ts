@@ -1,12 +1,73 @@
 import type { Analysis, AssetConsensusSummary, Event, MarketImpact } from "@/types";
 
-export const trackedAssets = ["Crude Oil", "Nifty", "USD/INR", "Gold"] as const;
+export const trackedAssets = [
+  // Commodities
+  "Gold", "Silver", "Copper", "Crude Oil", "Brent Oil", "Natural Gas",
+  // Currencies
+  "USD", "EUR", "GBP", "INR", "JPY", "CNY",
+  // Crypto
+  "Bitcoin", "Ethereum", "Solana", "BNB",
+  // Indices
+  "S&P 500", "NASDAQ", "Dow Jones", "NIFTY 50", "SENSEX", "FTSE 100", "DAX"
+] as const;
+export type TrackedAsset = typeof trackedAssets[number];
+
+// Alternative spellings that should map to canonical asset names
+export const ASSET_ALIASES: Record<string, TrackedAsset> = {
+  "gold": "Gold",
+  "silver": "Silver",
+  "copper": "Copper",
+  "crude oil": "Crude Oil",
+  "crude": "Crude Oil",
+  "wti": "Crude Oil",
+  "oil": "Crude Oil",
+  "brent oil": "Brent Oil",
+  "brent": "Brent Oil",
+  "natural gas": "Natural Gas",
+  "natgas": "Natural Gas",
+  "gas": "Natural Gas",
+  "usd": "USD",
+  "dollar": "USD",
+  "us dollar": "USD",
+  "eur": "EUR",
+  "euro": "EUR",
+  "gbp": "GBP",
+  "pound": "GBP",
+  "inr": "INR",
+  "rupee": "INR",
+  "indian rupee": "INR",
+  "jpy": "JPY",
+  "yen": "JPY",
+  "cny": "CNY",
+  "yuan": "CNY",
+  "bitcoin": "Bitcoin",
+  "btc": "Bitcoin",
+  "ethereum": "Ethereum",
+  "eth": "Ethereum",
+  "solana": "Solana",
+  "sol": "Solana",
+  "bnb": "BNB",
+  "nifty 50": "NIFTY 50",
+  "nifty50": "NIFTY 50",
+  "nifty": "NIFTY 50",
+  "sensex": "SENSEX",
+  "nasdaq": "NASDAQ",
+  "s&p 500": "S&P 500",
+  "sp 500": "S&P 500",
+  "spx": "S&P 500",
+  "dow jones": "Dow Jones",
+  "dow": "Dow Jones",
+  "djia": "Dow Jones",
+  "ftse 100": "FTSE 100",
+  "ftse": "FTSE 100",
+  "dax": "DAX",
+};
 
 export const suggestedPrompts = [
-  "What are the most important events right now?",
-  "Impact on India?",
-  "Impact on crude oil, Nifty and USD/INR?",
-  "Which sectors are most exposed to current global risks?",
+  "Summarize the latest geopolitical risks affecting energy markets.",
+  "What is the near-term outlook for Crude Oil and Gold based on recent events?",
+  "Analyze the immediate impact of Middle East tensions on global shipping.",
+  "Identify emerging regulatory threats to the technology sector.",
 ];
 
 const riskWeights: Record<string, number> = {
@@ -197,8 +258,10 @@ function isConflicting(impact: MarketImpact): boolean {
   return outlook.includes("bearish") || outlook.includes("negative");
 }
 
-function assetMatches(value: string, asset: string): boolean {
-  return value.trim().toLowerCase() === asset.trim().toLowerCase();
+function assetMatches(value: string, asset: TrackedAsset): boolean {
+  const norm = value.trim().toLowerCase();
+  const canonical = ASSET_ALIASES[norm] ?? (norm.charAt(0).toUpperCase() + norm.slice(1));
+  return canonical === asset;
 }
 
 function clampScore(score: number): number {

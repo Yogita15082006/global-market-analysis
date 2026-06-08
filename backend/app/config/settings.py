@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     app_name: str = "Global Event Intelligence Platform"
     app_env: Literal["development", "staging", "production"] = "development"
     debug: bool = True
+
     api_prefix: str = "/api"
 
     cors_origins: Annotated[list[str], NoDecode] = Field(
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     gnews_max_articles: int = Field(default=20, description="Max articles per GNews fetch")
     rss_max_articles_per_feed: int = Field(default=25, description="Max articles per RSS feed")
     news_fetch_enabled: bool = Field(default=True, description="Enable scheduled news fetch")
+    marketaux_api_key: str = Field(default="", description="Marketaux API key (MARKETAUX_API_KEY)")
+    enable_marketaux: bool = Field(default=True, description="Enable Marketaux fetch (ENABLE_MARKETAUX)")
 
     # Groq AI analysis
     groq_api_key: str = Field(default="", description="Groq API key (GROQ_API_KEY)")
@@ -54,11 +57,11 @@ class Settings(BaseSettings):
 
     # AI chat
     chat_max_context_events: int = Field(
-        default=5,
+        default=20,
         description="Max analyzed events sent to Groq per question (CHAT_MAX_CONTEXT_EVENTS)",
     )
     chat_max_context_chars: int = Field(
-        default=6000,
+        default=25000,
         description="Max context characters for chat prompts (CHAT_MAX_CONTEXT_CHARS)",
     )
     chat_default_user_id: str = Field(

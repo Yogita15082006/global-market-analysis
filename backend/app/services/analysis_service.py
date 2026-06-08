@@ -42,6 +42,8 @@ class AnalysisService:
                 self.db.table(EVENTS_TABLE)
                 .select("*")
                 .eq("is_analyzed", False)
+                .gte("source_count", 3)
+                .order("relevance_score", desc=True)
                 .order("created_at", desc=False)
                 .limit(limit)
                 .execute()
@@ -64,7 +66,7 @@ class AnalysisService:
             title = event.get("title") or ""
             description = event.get("description")
 
-            relevant, reason = is_relevant_event(title, description)
+            relevant, reason, relevance_score, _priority = is_relevant_event(title, description)
             if not relevant:
                 self._mark_analyzed(event_id)
                 stats.filtered_irrelevant += 1
@@ -124,6 +126,38 @@ class AnalysisService:
         )
         return stats
 
+    async def run_analysis_for_event(self, event_id: str) -> dict[str, Any]:
+        """Force generation of deep analysis for a single event."""
+        if not self.settings.groq_configured:
+            return {"status": "error", "error": "GROQ_API_KEY is not configured"}
+
+        try:
+            response = self.db.table(EVENTS_TABLE).select("*").eq("id", event_id).execute()
+        except Exception as exc:
+            raise SupabaseQueryError(f"Failed to fetch event: {exc}", table=EVENTS_TABLE) from exc
+
+        events = response.data or []
+        if not events:
+            return {"status": "error", "error": "Event not found"}
+
+        event = events[0]
+        title = event.get("title") or ""
+        description = event.get("description")
+
+        try:
+            result = await analyze_event(
+                title=title,
+                description=description,
+                source=event.get("source"),
+                url=event.get("url"),
+            )
+            self._store_analysis(event_id, result.model_dump())
+            self._mark_analyzed(event_id)
+            return {"status": "success", "analysis": result.model_dump()}
+        except Exception as exc:
+            logger.exception("Failed to store analysis for event %s", event_id)
+            return {"status": "error", "error": str(exc)}
+
     def list_analysis(self, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
         try:
             response = (
@@ -172,6 +206,14 @@ class AnalysisService:
             "risk_level": payload["risk_level"],
             "confidence_score": int(round(payload["confidence_score"])),
             "market_impacts": market_impacts,
+            "why_this_matters": payload.get("why_this_matters"),
+            "strategic_significance": payload.get("strategic_significance"),
+            "bull_case": payload.get("bull_case"),
+            "bear_case": payload.get("bear_case"),
+            "consensus_view": payload.get("consensus_view"),
+            "historical_comparisons": payload.get("historical_comparisons"),
+            "future_scenarios": payload.get("future_scenarios"),
+            "countries_impacted": payload.get("countries_impacted", []),
         }
         self.db.table(ANALYSIS_TABLE).insert(row).execute()
 

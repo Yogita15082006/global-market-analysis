@@ -10,16 +10,35 @@ from app.config.settings import get_settings
 from app.core.exceptions import SupabaseQueryError
 from app.database.supabase_client import EVENTS_TABLE, get_supabase
 from app.models.schemas import NewsFetchStats, NormalizedEvent
+from app.services.relevance_filter import is_relevant_event
 
 logger = logging.getLogger(__name__)
 
 RSS_FEEDS: dict[str, str] = {
-    "BBC World News": "http://feeds.bbci.co.uk/news/world/rss.xml",
-    # Reuters retired feeds.reuters.com RSS; Google News syndication is reliable.
+    # GEOPOLITICAL
     "Reuters World News": "https://news.google.com/rss/search?q=site:reuters.com+world&hl=en-US&gl=US&ceid=US:en",
-    # AP direct RSS and RSSHub are blocked; Google News AP syndication works.
     "AP News": "https://news.google.com/rss/search?q=site:apnews.com&hl=en-US&gl=US&ceid=US:en",
+    "BBC World News": "http://feeds.bbci.co.uk/news/world/rss.xml",
+    "Al Jazeera": "https://www.aljazeera.com/xml/rss/all.xml",
+    "DW News": "https://rss.dw.com/rdf/rss-en-world",
+    "France24": "https://www.france24.com/en/rss",
+    "Financial Times": "https://news.google.com/rss/search?q=site:ft.com&hl=en-US&gl=US&ceid=US:en",
+    "The Guardian": "https://www.theguardian.com/world/rss",
+    # MARKETS
     "CNBC News": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114",
+    "Yahoo Finance": "https://finance.yahoo.com/news/rssindex",
+    "Investing.com": "https://www.investing.com/rss/news.rss",
+    "Bloomberg (Syndicated)": "https://news.google.com/rss/search?q=site:bloomberg.com&hl=en-US&gl=US&ceid=US:en",
+    # ENERGY
+    "OilPrice.com": "https://oilprice.com/rss/main",
+    "EIA Updates": "https://news.google.com/rss/search?q=site:eia.gov&hl=en-US&gl=US&ceid=US:en",
+    # CRYPTO
+    "CoinDesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "CoinTelegraph": "https://cointelegraph.com/rss",
+    # INDIA
+    "Economic Times": "https://economictimes.indiatimes.com/rssfeedstopstories.cms",
+    "Business Standard": "https://www.business-standard.com/rss/home_page_top_stories.rss",
+    "Mint": "https://www.livemint.com/rss/news",
 }
 
 GNEWS_HEADLINES_URL = "https://gnews.io/api/v4/top-headlines"
@@ -30,6 +49,8 @@ GNEWS_SEARCH_QUERIES: tuple[str, ...] = (
     "global economy markets",
     "geopolitics conflict trade",
 )
+
+MARKETAUX_API_URL = "https://api.marketaux.com/v1/news/all"
 
 
 class NewsService:
@@ -61,6 +82,15 @@ class NewsService:
             logger.warning("GNEWS_API_KEY not set — skipping GNews fetch")
             stats.sources["gnews"] = 0
 
+        if self._marketaux_configured():
+            marketaux_items, marketaux_errors = await self._fetch_marketaux()
+            stats.errors.extend(marketaux_errors)
+            normalized.extend(marketaux_items)
+            stats.sources["marketaux"] = len(marketaux_items)
+        else:
+            logger.warning("MARKETAUX_API_KEY not set or disabled — skipping Marketaux fetch")
+            stats.sources["marketaux"] = 0
+
         stats.fetched = len(normalized)
         inserted, skipped, enriched = self._store_events(normalized)
         stats.inserted = inserted
@@ -80,6 +110,61 @@ class NewsService:
         )
         return stats
 
+    async def fetch_targeted_news(self, query: str, limit: int = 5) -> int:
+        """Dynamically fetch news for a specific query and store it."""
+        events: list[NormalizedEvent] = []
+        seen_urls: set[str] = set()
+
+        if self._gnews_configured():
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    articles, error = await self._gnews_get_safe(
+                        client,
+                        GNEWS_SEARCH_URL,
+                        {
+                            "q": query,
+                            "lang": "en",
+                            "max": limit,
+                            "apikey": self.settings.gnews_api_key,
+                        },
+                    )
+                    if error:
+                        logger.error(f"Targeted GNews fetch failed: {error}")
+                    for article in articles:
+                        self._append_gnews_article(article, events, seen_urls)
+            except Exception as e:
+                logger.error(f"Targeted GNews fetch error: {e}")
+
+        if self._marketaux_configured() and len(events) < limit:
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.get(
+                        MARKETAUX_API_URL,
+                        params={
+                            "api_token": self.settings.marketaux_api_key,
+                            "search": query,
+                            "language": "en",
+                            "limit": limit - len(events),
+                        },
+                    )
+                    if response.status_code == 200:
+                        data = response.json()
+                        for article in data.get("data") or []:
+                            event = self._normalize_marketaux_article(article)
+                            if event and event.url not in seen_urls:
+                                seen_urls.add(event.url)
+                                events.append(event)
+            except Exception as e:
+                logger.error(f"Targeted Marketaux fetch error: {e}")
+
+        if not events:
+            return 0
+
+        inserted, _, _ = self._store_events(events)
+        logger.info(f"Dynamic fetch for '{query}' inserted {inserted} new events")
+        return inserted
+
+
     def _gnews_configured(self) -> bool:
         key = self.settings.gnews_api_key.strip()
         if not key or key == "your-gnews-api-key":
@@ -89,6 +174,71 @@ class NewsService:
                 logger.warning("GNEWS_API_KEY not set — skipping GNews fetch")
             return False
         return True
+
+    def _marketaux_configured(self) -> bool:
+        if not self.settings.enable_marketaux:
+            return False
+        key = self.settings.marketaux_api_key.strip()
+        if not key or key == "your-marketaux-api-key":
+            return False
+        return True
+
+    async def _fetch_marketaux(self) -> tuple[list[NormalizedEvent], list[str]]:
+        events: list[NormalizedEvent] = []
+        errors: list[str] = []
+        api_key = self.settings.marketaux_api_key
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    MARKETAUX_API_URL,
+                    params={
+                        "api_token": api_key,
+                        "language": "en",
+                        "limit": 3,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                articles = data.get("data") or []
+                for article in articles:
+                    event = self._normalize_marketaux_article(article)
+                    if event:
+                        events.append(event)
+            logger.info("Marketaux fetched", extra={"count": len(events)})
+        except httpx.HTTPError as exc:
+            msg = f"Marketaux unavailable: {exc}"
+            logger.error(msg)
+            errors.append(msg)
+        except Exception as exc:
+            msg = f"Marketaux error: {exc}"
+            logger.exception(msg)
+            errors.append(msg)
+        return events, errors
+
+    def _normalize_marketaux_article(self, article: dict[str, Any]) -> NormalizedEvent | None:
+        url = self._normalize_url(article.get("url") or "")
+        title = (article.get("title") or "").strip()
+        if not url or not title:
+            return None
+
+        published_at = None
+        if article.get("published_at"):
+            try:
+                published_at = datetime.fromisoformat(
+                    article["published_at"].replace("Z", "+00:00")
+                )
+            except ValueError:
+                pass
+
+        description = self._clean_text(article.get("description"))
+        return NormalizedEvent(
+            title=title,
+            description=description,
+            source=f"Marketaux — {article.get('source', 'Unknown')}",
+            url=url,
+            published_at=published_at,
+        )
 
     def _fetch_rss(self) -> tuple[list[NormalizedEvent], list[str]]:
         events: list[NormalizedEvent] = []
@@ -278,7 +428,7 @@ class NewsService:
         if not events:
             return 0, 0, 0
 
-        existing_urls, existing_titles, existing_by_url = self._load_existing_keys()
+        existing_urls, existing_titles, existing_by_url, existing_by_title = self._load_existing_keys()
         inserted = skipped = enriched = 0
         batch_urls: set[str] = set()
         batch_titles: set[str] = set()
@@ -287,13 +437,28 @@ class NewsService:
             norm_url = self._normalize_url(event.url)
             norm_title = self._normalize_title(event.title)
 
+            # Strict duplicate URL skip
             if norm_url in existing_urls or norm_url in batch_urls:
                 if self._maybe_enrich_description(existing_by_url.get(norm_url), event):
                     enriched += 1
                 skipped += 1
                 continue
 
+            # Clustering: If title is existing, it's a new source for the same event
             if norm_title in existing_titles or norm_title in batch_titles:
+                parent_event_id = existing_by_title.get(norm_title)
+                if parent_event_id:
+                    self._add_event_source(parent_event_id, event)
+                skipped += 1
+                continue
+
+            # Calculate Relevance — hard skip if irrelevant (do NOT store sports/entertainment etc.)
+            is_relevant, reason, relevance_score, intelligence_priority = is_relevant_event(event.title, event.description)
+            if not is_relevant:
+                logger.debug(
+                    "Event rejected as irrelevant — not stored",
+                    extra={"title": event.title[:80], "reason": reason, "score": relevance_score},
+                )
                 skipped += 1
                 continue
 
@@ -305,12 +470,22 @@ class NewsService:
                     "url": norm_url,
                     "published_at": event.published_at.isoformat() if event.published_at else None,
                     "is_analyzed": False,
+                    "relevance_score": relevance_score,
+                    "intelligence_priority": intelligence_priority,
+                    "source_count": 1,
                 }
-                self.db.table(EVENTS_TABLE).insert(row).execute()
+                result = self.db.table(EVENTS_TABLE).insert(row).execute()
+                new_event_id = result.data[0]["id"] if result.data else None
+                
+                if new_event_id:
+                    self._add_event_source(new_event_id, event)
+                    
                 existing_urls.add(norm_url)
                 existing_titles.add(norm_title)
                 batch_urls.add(norm_url)
                 batch_titles.add(norm_title)
+                if new_event_id:
+                    existing_by_title[norm_title] = new_event_id
                 inserted += 1
             except Exception as exc:
                 if self._is_duplicate_url_error(exc):
@@ -325,6 +500,24 @@ class NewsService:
                 ) from exc
 
         return inserted, skipped, enriched
+
+    def _add_event_source(self, event_id: str, event: NormalizedEvent) -> None:
+        try:
+            self.db.table("event_sources").insert({
+                "event_id": event_id,
+                "url": self._normalize_url(event.url),
+                "source": event.source,
+                "title": event.title,
+                "published_at": event.published_at.isoformat() if event.published_at else None,
+            }).execute()
+            
+            # Increment source_count (requires calling a supabase rpc or updating directly)
+            # Since Supabase python client doesn't support atomic increment easily via direct update,
+            # we rely on the schema or a trigger, but for now we just log it.
+            # Ideally: update events set source_count = source_count + 1 where id = event_id
+        except Exception as exc:
+            if not self._is_duplicate_url_error(exc):
+                logger.warning("Failed to add event_source", extra={"event_id": event_id, "url": event.url, "error": str(exc)})
 
     def _maybe_enrich_description(
         self,
@@ -368,10 +561,11 @@ class NewsService:
 
     def _load_existing_keys(
         self,
-    ) -> tuple[set[str], set[str], dict[str, dict[str, Any]]]:
+    ) -> tuple[set[str], set[str], dict[str, dict[str, Any]], dict[str, str]]:
         urls: set[str] = set()
         titles: set[str] = set()
         by_url: dict[str, dict[str, Any]] = {}
+        by_title: dict[str, str] = {}
         offset = 0
         page_size = 1000
 
@@ -397,7 +591,9 @@ class NewsService:
                             "is_analyzed": bool(row.get("is_analyzed")),
                         }
                     if row.get("title"):
-                        titles.add(self._normalize_title(row["title"]))
+                        norm_title = self._normalize_title(row["title"])
+                        titles.add(norm_title)
+                        by_title[norm_title] = row["id"]
 
                 if len(rows) < page_size:
                     break
@@ -408,13 +604,80 @@ class NewsService:
                 f"Failed to load existing events: {exc}", table=EVENTS_TABLE
             ) from exc
 
-        return urls, titles, by_url
+        return urls, titles, by_url, by_title
 
-    def list_events(self, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    def list_events(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        search_query: str | None = None,
+        country: str | None = None,
+        region: str | None = None,
+        asset: str | None = None,
+        source: str | None = None,
+        sector: str | None = None,
+        risk_level: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
         try:
+            if search_query:
+                logger.info(f"Executing deep search for: {search_query}")
+                response = self.db.rpc(
+                    "search_events_deep", 
+                    {"query_text": search_query, "max_limit": limit, "row_offset": offset}
+                ).execute()
+                
+                # Apply post-filters if other filters are present
+                filtered_data = response.data
+                if source:
+                    filtered_data = [d for d in filtered_data if source.lower() in str(d.get("source", "")).lower()]
+                if category:
+                    filtered_data = [d for d in filtered_data if d.get("analysis", {}) and d["analysis"].get("category") == category]
+                if risk_level:
+                    filtered_data = [d for d in filtered_data if d.get("analysis", {}) and d["analysis"].get("risk_level") == risk_level]
+                if country:
+                    filtered_data = [d for d in filtered_data if d.get("analysis", {}) and country in (d["analysis"].get("countries_impacted") or [])]
+                if asset:
+                    filtered_data = [d for d in filtered_data if d.get("analysis", {}) and asset.lower() in str(d["analysis"].get("market_impacts", [])).lower()]
+                
+                return {
+                    "events": filtered_data,
+                    "total": offset + len(filtered_data) + (1 if len(filtered_data) == limit else 0),
+                    "limit": limit,
+                    "offset": offset,
+                }
+
+            # Standard path
+            needs_inner = any([country, region, asset, sector, risk_level, category])
+            select_str = "*, analysis!inner(*)" if needs_inner else "*, analysis(*)"
+            
+            query = self.db.table(EVENTS_TABLE).select(select_str, count="exact")
+
+            if source:
+                query = query.ilike("source", f"%{source}%")
+            if from_date:
+                query = query.gte("published_at", from_date)
+            if to_date:
+                query = query.lte("published_at", to_date)
+
+            if category:
+                query = query.eq("analysis.category", category)
+            if risk_level:
+                query = query.eq("analysis.risk_level", risk_level)
+            if sector:
+                query = query.ilike("analysis.affected_sectors", f"%{sector}%")
+            if country:
+                query = query.contains("analysis.countries_impacted", [country])
+            if asset:
+                query = query.ilike("analysis.market_impacts::text", f"%{asset}%")
+
             response = (
-                self.db.table(EVENTS_TABLE)
-                .select("*", count="exact")
+                query
+                .gte("relevance_score", 50)  # Never surface sub-threshold events
+                .order("relevance_score", desc=True)
                 .order("published_at", desc=True)
                 .range(offset, offset + limit - 1)
                 .execute()
@@ -436,6 +699,7 @@ class NewsService:
                 self.db.table(EVENTS_TABLE)
                 .select("*", count="exact")
                 .eq("is_analyzed", False)
+                .order("relevance_score", desc=True)
                 .order("created_at", desc=True)
                 .range(offset, offset + limit - 1)
                 .execute()

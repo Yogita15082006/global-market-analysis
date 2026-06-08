@@ -1,0 +1,129 @@
+.market-dashboard {
+  padding: 32px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.market-header {
+  margin-bottom: 32px;
+}
+
+.market-header h1 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: -0.02em;
+}
+
+.market-header p {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.market-top-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.market-metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-metric-value {
+  font-size: 2rem;
+  font-weight: 400;
+  font-family: 'JetBrains Mono', monospace;
+  line-height: 1;
+}
+
+.market-metric-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.market-overview-section h2 {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.market-asset-card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.market-asset-card:hover {
+  border-color: rgba(255,255,255,0.15);
+  transform: translateY(-2px);
+}
+
+.market-asset-type {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.market-asset-name {
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.market-asset-price-row {
+  margin-bottom: 8px;
+}
+
+.market-asset-price {
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.market-asset-change-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.market-asset-change-text {
+  font-size: 0.8rem;
+  color: var(--muted-2);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.market-asset-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+}

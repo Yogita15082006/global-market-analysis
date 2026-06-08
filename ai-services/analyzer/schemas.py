@@ -82,35 +82,64 @@ ALLOWED_SECTORS = {
 }
 
 ALLOWED_MARKET_ASSETS = {
-    "Gold",
-    "Silver",
-    "Crude Oil",
-    "Natural Gas",
-    "Nifty",
-    "Sensex",
-    "Nasdaq",
-    "S&P 500",
-    "USD/INR",
+    # Commodities
+    "Gold", "Silver", "Copper", "Crude Oil", "Brent Oil", "Natural Gas",
+    # Currencies
+    "USD", "EUR", "GBP", "INR", "JPY", "CNY",
+    # Crypto
+    "Bitcoin", "Ethereum", "Solana", "BNB",
+    # Indices
+    "S&P 500", "NASDAQ", "Dow Jones", "NIFTY 50", "SENSEX", "FTSE 100", "DAX",
     *ALLOWED_SECTORS,
 }
 
 ASSET_ALIASES: dict[str, str] = {
     "gold": "Gold",
     "silver": "Silver",
+    "copper": "Copper",
     "crude oil": "Crude Oil",
     "crude": "Crude Oil",
+    "wti": "Crude Oil",
     "oil": "Crude Oil",
+    "brent oil": "Brent Oil",
+    "brent": "Brent Oil",
     "natural gas": "Natural Gas",
     "gas": "Natural Gas",
-    "nifty": "Nifty",
-    "nifty50": "Nifty",
-    "sensex": "Sensex",
-    "nasdaq": "Nasdaq",
+    "usd": "USD",
+    "dollar": "USD",
+    "eur": "EUR",
+    "euro": "EUR",
+    "gbp": "GBP",
+    "pound": "GBP",
+    "inr": "INR",
+    "rupee": "INR",
+    "jpy": "JPY",
+    "yen": "JPY",
+    "cny": "CNY",
+    "yuan": "CNY",
+    "bitcoin": "Bitcoin",
+    "btc": "Bitcoin",
+    "ethereum": "Ethereum",
+    "eth": "Ethereum",
+    "solana": "Solana",
+    "sol": "Solana",
+    "bnb": "BNB",
+    "nifty 50": "NIFTY 50",
+    "nifty50": "NIFTY 50",
+    "nifty": "NIFTY 50",
+    "sensex": "SENSEX",
+    "nasdaq": "NASDAQ",
     "s&p 500": "S&P 500",
     "sp 500": "S&P 500",
-    "usd/inr": "USD/INR",
-    "usd inr": "USD/INR",
-    "usd-inr": "USD/INR",
+    "spx": "S&P 500",
+    "dow jones": "Dow Jones",
+    "dow": "Dow Jones",
+    "djia": "Dow Jones",
+    "ftse 100": "FTSE 100",
+    "ftse": "FTSE 100",
+    "dax": "DAX",
+    "usd/inr": "USD", # map pairs to base asset if needed, or keep separate? User didn't request USD/INR in final list, just USD and INR. We map usd/inr to USD.
+    "usd inr": "USD",
     "banking": "Banking",
     "it": "IT",
     "pharma": "Pharma",
@@ -225,6 +254,14 @@ class EventAnalysisResult(BaseModel):
     risk_level: str
     confidence_score: float = Field(ge=0, le=100)
     market_impacts: list[MarketImpactItem] = Field(default_factory=list, max_length=12)
+    why_this_matters: str | None = None
+    strategic_significance: str | None = None
+    bull_case: str | None = None
+    bear_case: str | None = None
+    consensus_view: str | None = None
+    historical_comparisons: str | None = None
+    future_scenarios: str | None = None
+    countries_impacted: list[str] = Field(default_factory=list)
 
     @field_validator("category")
     @classmethod

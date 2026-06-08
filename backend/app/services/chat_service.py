@@ -13,6 +13,7 @@ from app.services.consensus import (
     build_asset_consensus,
     format_consensus_context,
 )
+from app.services.news_service import NewsService
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class ChatService:
         normalized_question = question.strip()
         logger.info("Chat question received", extra={"length": len(normalized_question)})
 
-        retrieval = self._search_relevant_events(normalized_question)
+        retrieval = await self._search_relevant_events(normalized_question)
         relevant_rows = retrieval.selected
 
         logger.warning(
@@ -278,46 +279,90 @@ class ChatService:
             )
         return results
 
-    def _search_relevant_events(self, question: str):
+    async def _search_relevant_events(self, question: str):
         keywords = self._extract_keywords(question)
         fetch_limit = max(self.settings.chat_max_context_events * 10, 50)
 
         try:
-            response = (
+            # 1. Fetch baseline latest events
+            baseline_response = (
                 self.db.table(ANALYSIS_TABLE)
-                .select(
-                    "*, events(id, title, description, url, source, published_at)",
-                )
+                .select("*, events(id, title, description, url, source, published_at)")
                 .order("generated_at", desc=True)
                 .limit(fetch_limit)
                 .execute()
             )
+            rows = baseline_response.data or []
+            seen_ids = {r.get("event_id") for r in rows if r.get("event_id")}
+
+            # 2. Perform deep search for top keywords to expand context
+            sorted_keywords = sorted(list(keywords), key=len, reverse=True)[:3]
+            
+            deep_search_count = 0
+            def do_search(kw: str):
+                nonlocal deep_search_count
+                search_res = self.db.rpc("search_events_deep", {"query_text": kw, "max_limit": 25, "row_offset": 0}).execute()
+                data = search_res.data or []
+                deep_search_count += len(data)
+                for r in data:
+                    event_id = r.get("id")
+                    if event_id and event_id not in seen_ids:
+                        seen_ids.add(event_id)
+                        analysis = r.get("analysis") or {}
+                        analysis["events"] = {
+                            "id": event_id,
+                            "title": r.get("title"),
+                            "description": r.get("description"),
+                            "source": r.get("source"),
+                            "url": r.get("url"),
+                            "published_at": r.get("published_at"),
+                        }
+                        rows.append(analysis)
+            
+            for kw in sorted_keywords:
+                do_search(kw)
+                
+            if not rows:
+                from app.services.asset_intelligence import QueryIntent, QueryType
+                return RetrievalResult(
+                    intent=QueryIntent(query_type=QueryType.GENERAL),
+                    expanded_terms=keywords,
+                    ranked=[],
+                    selected=[],
+                    direct_evidence=False,
+                    inference_mode=False,
+                )
+
+            retrieval = retrieve_events(
+                rows,
+                question,
+                keywords,
+                max_events=self.settings.chat_max_context_events,
+            )
+
+            # 3. If we don't have enough selected events and have a top keyword, dynamically fetch from external APIs
+            if len(retrieval.selected) < 3 and sorted_keywords:
+                logger.info(f"Insufficient events for '{sorted_keywords[0]}' after retrieval filter, dynamically fetching news...")
+                news_service = NewsService()
+                inserted = await news_service.fetch_targeted_news(sorted_keywords[0], limit=5)
+                if inserted > 0:
+                    # Re-run search for the top keyword to grab the newly inserted items
+                    do_search(sorted_keywords[0])
+                    # Re-run retrieval with the newly expanded rows
+                    retrieval = retrieve_events(
+                        rows,
+                        question,
+                        keywords,
+                        max_events=self.settings.chat_max_context_events,
+                    )
+
         except Exception as exc:
             logger.exception("Failed to fetch analysis for chat context")
             raise SupabaseQueryError(
                 f"Failed to fetch analysis for chat: {exc}", table=ANALYSIS_TABLE
             ) from exc
 
-        rows = response.data or []
-        if not rows:
-            logger.warning("No analyzed events available for chat context")
-            from app.services.asset_intelligence import QueryIntent, QueryType
-
-            return RetrievalResult(
-                intent=QueryIntent(query_type=QueryType.GENERAL),
-                expanded_terms=keywords,
-                ranked=[],
-                selected=[],
-                direct_evidence=False,
-                inference_mode=False,
-            )
-
-        return retrieve_events(
-            rows,
-            question,
-            keywords,
-            max_events=self.settings.chat_max_context_events,
-        )
+        return retrieval
 
     def _extract_keywords(self, question: str) -> set[str]:
         tokens = re.findall(r"[a-z0-9/]+", question.lower())
@@ -371,11 +416,19 @@ class ChatService:
             f"Source: {event.get('source') or 'Unknown'}",
             f"Category: {row.get('category') or 'unknown'}",
             f"Summary: {row.get('summary') or ''}",
+            f"Why This Matters: {row.get('why_this_matters') or ''}",
+            f"Strategic Significance: {row.get('strategic_significance') or ''}",
             f"Impact on India: {row.get('impact_on_india') or ''}",
             f"Impact type: {row.get('impact_type') or 'neutral'}",
             f"Risk level: {row.get('risk_level') or 'unknown'}",
             f"Affected sectors: {sectors_text or 'none'}",
+            f"Countries Impacted: {', '.join(row.get('countries_impacted') or []) or 'none'}",
             f"Key points: {points_text or 'none'}",
+            f"Bull Case: {row.get('bull_case') or ''}",
+            f"Bear Case: {row.get('bear_case') or ''}",
+            f"Consensus View: {row.get('consensus_view') or ''}",
+            f"Historical Comparisons: {row.get('historical_comparisons') or ''}",
+            f"Future Scenarios: {row.get('future_scenarios') or ''}",
         ]
         if market_lines:
             lines.append("Market impacts:")

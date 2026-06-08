@@ -1,177 +1,448 @@
-import { type CSSProperties, type ReactNode, useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
+import { ComposableMap, Geographies, Geography, Marker } from "react-simple-maps";
+import { BarChart2, AlertTriangle, TrendingUp, Clock } from "lucide-react";
 import { Badge, toneForRisk } from "@/components/Badge";
 import { EmptyBlock, ErrorBlock, LoadingBlock } from "@/components/Status";
-import { useAnalysis, useEvents, useUnanalyzedEvents } from "@/hooks/useEvents";
-import { buildDashboardStats } from "@/lib/intelligence";
+import { useAnalysis, useEvents, useSourceAnalytics } from "@/hooks/useEvents";
+import { buildDashboardStats, buildCrisisFeedRows } from "@/lib/intelligence";
 import { formatRelativeTime, percent } from "@/utils/formatters";
+import { useQuery } from "@tanstack/react-query";
+import { marketApi } from "@/api";
+import "./Dashboard.css";
+
+const GEO_URL = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json";
+
+const COUNTRY_COORDS: Record<string, [number, number]> = {
+  "Russia": [100.0, 60.0], "Ukraine": [31.0, 48.0], "Israel": [34.8, 31.0],
+  "Iran": [53.0, 32.0], "China": [104.0, 35.0], "Taiwan": [121.0, 23.5],
+  "United States": [-95.0, 38.0], "India": [78.0, 21.0], "Pakistan": [69.0, 30.0],
+  "United Kingdom": [-3.0, 55.0], "France": [2.0, 46.0], "Germany": [10.0, 51.0],
+  "Japan": [138.0, 36.0], "North Korea": [127.0, 40.0], "South Korea": [127.0, 36.0],
+  "Syria": [39.0, 35.0], "Lebanon": [35.8, 33.8], "Yemen": [47.0, 15.0],
+  "Sudan": [30.0, 15.0], "Myanmar": [96.0, 21.0], "Afghanistan": [65.0, 33.0]
+};
+
+const HOTSPOT_COLOR: Record<string, string> = {
+  critical: "#dc3545",
+  high:     "#e07b35",
+  medium:   "#c9a227",
+};
 
 export function Dashboard() {
-  const eventsQuery = useEvents({ limit: 60 });
-  const analysisQuery = useAnalysis({ limit: 120 });
-  const unanalyzedQuery = useUnanalyzedEvents({ limit: 1 });
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const events = eventsQuery.data?.events ?? [];
+  const eventsQuery    = useEvents({ limit: 100 });
+  const analysisQuery  = useAnalysis({ limit: 150 });
+  const analyticsQuery = useSourceAnalytics();
+  const marketQuery    = useQuery({ queryKey: ["marketLive"], queryFn: () => marketApi.live(), refetchInterval: 60000 });
+
+  const events   = eventsQuery.data?.events   ?? [];
   const analyses = analysisQuery.data?.analysis ?? [];
+
   const stats = useMemo(
-    () => buildDashboardStats(analyses, eventsQuery.data?.total ?? events.length, unanalyzedQuery.data?.total ?? 0),
-    [analyses, events.length, eventsQuery.data?.total, unanalyzedQuery.data?.total],
+    () => buildDashboardStats(analyses, eventsQuery.data?.total ?? events.length, 0),
+    [analyses, events.length, eventsQuery.data?.total],
   );
-  const latestEvent = events[0];
-  const latestAnalysis = analyses[0];
+
+  const topThreats = useMemo(
+    () => buildCrisisFeedRows(events, analyses)
+      .filter(r => r.analysis)
+      .slice(0, 10),
+    [events, analyses],
+  );
+
+  const filteredThreats = useMemo(() => {
+    if (!searchQuery.trim()) return topThreats;
+    const q = searchQuery.toLowerCase();
+    return topThreats.filter(r =>
+      r.event.title?.toLowerCase().includes(q) ||
+      (r.analysis?.summary ?? "").toLowerCase().includes(q) ||
+      (r.analysis?.countries_impacted ?? []).some(c => c.toLowerCase().includes(q))
+    );
+  }, [topThreats, searchQuery]);
+
+  const recentEvents = useMemo(() =>
+    [...events]
+      .filter(e => (e.relevance_score ?? 0) >= 50)
+      .sort((a, b) => new Date(b.published_at ?? 0).getTime() - new Date(a.published_at ?? 0).getTime())
+      .slice(0, 8),
+    [events],
+  );
+
+  const topCountries = useMemo(() => {
+    const map: Record<string, number> = {};
+    analyses.forEach(a => (a.countries_impacted ?? []).forEach(c => { map[c] = (map[c] ?? 0) + 1; }));
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [analyses]);
+
+  const topAssets = useMemo(() => {
+    const map: Record<string, number> = {};
+    analyses.forEach(a => (a.market_impacts ?? []).forEach(m => { map[m.asset] = (map[m.asset] ?? 0) + 1; }));
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [analyses]);
+
+  const dynamicHotspots = useMemo(() => {
+    return topCountries.map(([name, count]) => {
+      const coords = COUNTRY_COORDS[name] || [0, 0];
+      const risk = count > 10 ? "critical" : count > 5 ? "high" : "medium";
+      return { name, coordinates: coords as [number, number], risk, detail: `${count} active events` };
+    }).filter(h => h.coordinates[0] !== 0);
+  }, [topCountries]);
+
+  const indiaEvents = useMemo(() =>
+    [...events]
+      .filter(e => (e.title?.toLowerCase().includes("india")) || (e.description && e.description.toLowerCase().includes("india")))
+      .sort((a, b) => new Date(b.published_at ?? 0).getTime() - new Date(a.published_at ?? 0).getTime())
+      .slice(0, 5),
+    [events]
+  );
+
+  const marketDataList = (marketQuery.data?.data || []) as any[];
+  const nifty = marketDataList.find((m: any) => m.asset === "NIFTY 50");
+  const gold = marketDataList.find((m: any) => m.asset === "Gold");
+
+  const ribbonEvents = useMemo(() =>
+    events.filter(e => (e.relevance_score ?? 0) >= 70).slice(0, 10),
+    [events],
+  );
+
+  const isLoading = eventsQuery.isLoading || analysisQuery.isLoading;
+  const isError   = eventsQuery.isError   || analysisQuery.isError;
 
   return (
-    <main className="intelligence-page dashboard-page">
-      <section className="dashboard-topline">
-        <div className="dashboard-hero compact-hero">
-          <div className="hero-copy">
-            <p className="eyebrow">Global intelligence dashboard</p>
-            <h1>Operational view of risk, categories, and sector exposure.</h1>
-            <div className="signal-strip">
-              <Signal label="Feed Online" active={!eventsQuery.isError} />
-              <Signal label="Analysis Pipeline" active={!analysisQuery.isError} />
-              <Signal label="Coverage Sync" active={!unanalyzedQuery.isError} />
-            </div>
+    <main className="dash-page">
+      {/* Ribbon */}
+      <div className="intel-ribbon">
+        <div className="intel-ribbon-label">
+          <span className="ribbon-pulse" />
+          BREAKING
+        </div>
+        <div className="intel-ribbon-track">
+          <div className="intel-ribbon-inner">
+            {[...ribbonEvents, ...ribbonEvents].map((e, i) => (
+              <span key={i} className="ribbon-item">
+                <span className={`priority-tag ${e.intelligence_priority?.toLowerCase() ?? "medium"}`}>
+                  {e.intelligence_priority ?? "MED"}
+                </span>
+                {e.title}
+                <span className="ribbon-sep">◆</span>
+              </span>
+            ))}
+            {ribbonEvents.length === 0 && (
+              <span className="ribbon-item" style={{ color: "var(--muted)" }}>Monitoring global intelligence streams...</span>
+            )}
           </div>
-          <div className="risk-score-card hero-card">
-            <div className="risk-score-ring" style={{ "--score": `${stats.globalRiskScore}%` } as CSSProperties}>
-              <strong>{stats.globalRiskScore}</strong>
-              <span>Global Risk</span>
-            </div>
-            <div className="risk-score-copy">
-              <Badge tone={toneForRisk(stats.riskPosture === "Elevated" ? "critical" : stats.riskPosture === "Guarded" ? "high" : "low")}>{stats.riskPosture}</Badge>
-              <p>
-                {stats.criticalEvents} critical events, {stats.highRiskEvents} high-risk events, and {stats.totalAnalyses.toLocaleString()} analyses currently shape the risk stack.
-              </p>
-            </div>
+        </div>
+      </div>
+
+      <div className="page">
+        {/* Header */}
+        <div className="dash-header">
+          <div className="dash-header-left">
+            <h1>Geopolitical Operations Center</h1>
+            <p>Global risk surveillance · {new Date().toUTCString().slice(0, 25)} UTC</p>
+          </div>
+          <div className="metric-strip">
+            <MetricInline label="CRITICAL" value={stats.criticalEvents} tone={stats.criticalEvents > 0 ? "critical" : "good"} />
+            <div className="metric-divider" />
+            <MetricInline label="HIGH RISK" value={stats.highRiskEvents} tone="high" />
+            <div className="metric-divider" />
+            <MetricInline label="ANALYSED" value={analyses.length} tone="accent" />
+            <div className="metric-divider" />
+            <MetricInline label="RISK INDEX" value={stats.globalRiskScore} tone={stats.globalRiskScore > 70 ? "critical" : stats.globalRiskScore > 50 ? "high" : "accent"} />
+            <div className="metric-divider" />
+            <MetricInline label="HQ CLUSTERS" value={analyticsQuery.data?.high_confidence_clusters ?? 0} tone="accent" />
           </div>
         </div>
 
-        <section className="metric-grid">
-          <Metric label="Total Events" value={stats.totalEvents} trend={latestEvent ? `Latest: ${latestEvent.title}` : "No feed data"} />
-          <Metric label="Total Analyses" value={stats.totalAnalyses} trend={latestAnalysis ? `Most recent: ${latestAnalysis.category ?? "Unclassified"}` : "No analysis data"} />
-          <Metric label="Critical Events" value={stats.criticalEvents} trend="Highest-priority alerts" />
-          <Metric label="Global Risk Score" value={stats.globalRiskScore} trend={`${stats.riskPosture} posture`} />
-        </section>
-      </section>
+        {isLoading && <LoadingBlock label="Loading intelligence..." />}
+        {isError   && <ErrorBlock  message="Could not connect to intelligence feed." />}
 
-      <section className="dashboard-grid">
-        <Panel title="Top Risk Categories" subtitle="Current distribution of analysis categories">
-          {stats.topRiskCategories.length ? (
-            <div className="bar-list">
-              {stats.topRiskCategories.map((item) => (
-                <div className="bar-row" key={item.label}>
-                  <span>{item.label}</span>
-                  <div>
-                    <i style={{ width: `${Math.max(8, Math.min(100, item.count * 12))}%` }} />
+        <div className="dash-grid">
+          {/* Main column */}
+          <div className="dash-main">
+            {/* Threat table */}
+            <div className="panel">
+              <div className="panel-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <AlertTriangle size={13} color="var(--high)" />
+                  <h2>Top Global Threats</h2>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input
+                    className="dash-search"
+                    type="search"
+                    placeholder="Filter threats..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                  <span className="panel-meta">{filteredThreats.length} events</span>
+                </div>
+              </div>
+              <div style={{ padding: 0 }}>
+                {filteredThreats.length === 0 && !isLoading ? (
+                  <div style={{ padding: "14px" }}>
+                    <EmptyBlock message="No analyzed threats found. Run analysis to populate." />
                   </div>
-                  <strong>{item.count}</strong>
+                ) : (
+                  <table className="intel-table">
+                    <thead>
+                      <tr>
+                        <th>Score</th>
+                        <th>Priority</th>
+                        <th>Risk</th>
+                        <th>Conf</th>
+                        <th style={{ minWidth: "280px" }}>Event</th>
+                        <th>Countries</th>
+                        <th>Updated</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredThreats.map(({ event, analysis }, i) => (
+                        <motion.tr
+                          key={event.id}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: i * 0.04 }}
+                        >
+                          <td className="score-cell">{event.relevance_score ?? 0}</td>
+                          <td>
+                            <span className={`priority-tag ${event.intelligence_priority?.toLowerCase() ?? "medium"}`}>
+                              {event.intelligence_priority ?? "MED"}
+                            </span>
+                          </td>
+                          <td>
+                            <Badge tone={toneForRisk(analysis?.risk_level)}>
+                              {analysis?.risk_level?.toUpperCase() ?? "—"}
+                            </Badge>
+                          </td>
+                          <td style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "0.72rem", color: "var(--accent)" }}>
+                            {percent(analysis?.confidence_score)}
+                          </td>
+                          <td className="title-cell">{event.title}</td>
+                          <td>
+                            <div className="tag-row">
+                              {(analysis?.countries_impacted ?? []).slice(0, 2).map(c => (
+                                <Badge key={c} tone="info">{c}</Badge>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="date-cell">{formatRelativeTime(event.published_at ?? "")}</td>
+                          <td>
+                            <Link to={`/events/${event.id}`} className="view-link">BRIEF →</Link>
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Risk Map */}
+            <div className="panel risk-map-panel">
+              <div className="panel-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <TrendingUp size={13} color="var(--accent)" />
+                  <h2>Global Risk Map</h2>
+                </div>
+                <span className="panel-meta">Active hotspots · Click to explore</span>
+              </div>
+              <div style={{ padding: "0 8px 8px" }}>
+                <ComposableMap
+                  projection="geoNaturalEarth1"
+                  style={{ width: "100%", height: "260px" }}
+                >
+                  <Geographies geography={GEO_URL}>
+                    {({ geographies }: { geographies: Array<{ rsmKey: string; [key: string]: unknown }> }) =>
+                      geographies.map(geo => (
+                        <Geography
+                          key={geo.rsmKey}
+                          geography={geo}
+                          fill="rgba(22,30,44,0.9)"
+                          stroke="rgba(255,255,255,0.06)"
+                          strokeWidth={0.4}
+                          style={{ default: { outline: "none" }, hover: { fill: "rgba(200,168,75,0.12)", outline: "none" }, pressed: { outline: "none" } }}
+                        />
+                      ))
+                    }
+                  </Geographies>
+                  {dynamicHotspots.map(spot => (
+                    <Marker key={spot.name} coordinates={spot.coordinates}>
+                      <circle r={spot.risk === "critical" ? 6 : 4} fill={HOTSPOT_COLOR[spot.risk]} fillOpacity={0.9} stroke={HOTSPOT_COLOR[spot.risk]} strokeWidth={1.5} strokeOpacity={0.3} />
+                      <circle r={spot.risk === "critical" ? 12 : 8} fill="none" stroke={HOTSPOT_COLOR[spot.risk]} strokeWidth={0.8} strokeOpacity={0.2} />
+                      <text y={-11} textAnchor="middle" style={{ fontFamily: "Inter,sans-serif", fontSize: "8px", fill: HOTSPOT_COLOR[spot.risk], fontWeight: 600 }}>
+                        {spot.name}
+                      </text>
+                    </Marker>
+                  ))}
+                </ComposableMap>
+                <div className="map-legend">
+                  <span className="map-legend-item critical">● CRITICAL</span>
+                  <span className="map-legend-item high">● HIGH</span>
+                  <span className="map-legend-item medium">● ELEVATED</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right sidebar */}
+          <div className="dash-sidebar">
+            
+            {/* Live Markets (NIFTY & GOLD) */}
+            <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+              {[nifty, gold].map((asset, idx) => asset && (
+                <div key={idx} style={{ flex: 1, background: "var(--bg-card)", border: "1px solid var(--line)", borderRadius: "6px", padding: "12px", display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: "0.65rem", color: "var(--muted)", fontWeight: 700, letterSpacing: "0.1em", marginBottom: "4px" }}>
+                    {asset.asset.toUpperCase()}
+                  </div>
+                  <div style={{ fontSize: "1.2rem", fontWeight: 500, fontFamily: "'JetBrains Mono', monospace", color: "var(--text)" }}>
+                    {asset.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "---"}
+                  </div>
+                  <div style={{ fontSize: "0.75rem", fontFamily: "'JetBrains Mono', monospace", color: (asset.daily_change ?? 0) >= 0 ? "var(--good)" : "var(--critical)", marginTop: "2px", fontWeight: 600 }}>
+                    {(asset.daily_change ?? 0) >= 0 ? "+" : ""}{asset.daily_change ? asset.daily_change.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"} ({(asset.daily_change ?? 0) >= 0 ? "+" : ""}{asset.daily_percent ? asset.daily_percent.toFixed(2) : "0.00"}%)
+                  </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <EmptyBlock message="No category data available yet." />
-          )}
-        </Panel>
 
-        <Panel title="Sector Exposure Chart" subtitle="Most exposed sectors in the current intelligence set">
-          {stats.sectorExposure.length ? (
-            <div className="sector-exposure">
-              <div className="donut donut--dashboard" style={{ background: exposureGradient(stats.sectorExposure) }}>
-                <strong>{stats.sectorExposure.reduce((sum, item) => sum + item.count, 0)}</strong>
-                <span>Signals</span>
+            {/* India Crucial Events */}
+            <div className="panel">
+              <div className="panel-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                  <AlertTriangle size={12} color="var(--critical)" />
+                  <h2>India Crucial Events</h2>
+                </div>
               </div>
-              <div className="distribution-legend">
-                {stats.sectorExposure.map((item, index) => (
-                  <div key={item.label}>
-                    <i style={{ background: chartColor(index) }} />
-                    <span>{item.label}</span>
-                    <strong>{item.count}</strong>
-                  </div>
+              <div className="latest-feed">
+                {indiaEvents.map((e, i) => (
+                  <motion.div key={e.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.05 }}>
+                    <Link to={`/events/${e.id}`} className="latest-item">
+                      <div className="latest-item-top">
+                        <span className={`priority-tag ${e.intelligence_priority?.toLowerCase() ?? "medium"}`}>
+                          {e.intelligence_priority ?? "MED"}
+                        </span>
+                        <span className="latest-time">{formatRelativeTime(e.published_at ?? "")}</span>
+                      </div>
+                      <span className="latest-title">{e.title}</span>
+                    </Link>
+                  </motion.div>
                 ))}
+                {indiaEvents.length === 0 && !isLoading && (
+                  <div style={{ padding: "12px 14px" }}><EmptyBlock message="No active India events." /></div>
+                )}
               </div>
             </div>
-          ) : (
-            <EmptyBlock message="No sector exposure data available yet." />
-          )}
-        </Panel>
-      </section>
+            {/* Latest Intel */}
+            <div className="panel">
+              <div className="panel-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                  <Clock size={12} color="var(--accent)" />
+                  <h2>Latest Intelligence</h2>
+                </div>
+                <Link to="/crisis-feed" className="view-link" style={{ fontSize: "0.62rem" }}>ALL →</Link>
+              </div>
+              <div className="latest-feed">
+                {recentEvents.map((e, i) => (
+                  <motion.div
+                    key={e.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.05 }}
+                  >
+                    <Link to={`/events/${e.id}`} className="latest-item">
+                      <div className="latest-item-top">
+                        <span className={`priority-tag ${e.intelligence_priority?.toLowerCase() ?? "medium"}`}>
+                          {e.intelligence_priority ?? "MED"}
+                        </span>
+                        <span className="latest-time">{formatRelativeTime(e.published_at ?? "")}</span>
+                      </div>
+                      <span className="latest-title">{e.title}</span>
+                    </Link>
+                  </motion.div>
+                ))}
+                {recentEvents.length === 0 && !isLoading && (
+                  <div style={{ padding: "12px 14px" }}><EmptyBlock message="No recent events." /></div>
+                )}
+              </div>
+            </div>
 
-      <section className="dashboard-grid dashboard-grid--single">
-        <Panel title="Latest Intelligence Snapshot" subtitle="Most recent event and analysis context">
-          {eventsQuery.isLoading || analysisQuery.isLoading ? <LoadingBlock /> : null}
-          {eventsQuery.isError || analysisQuery.isError ? <ErrorBlock message="Unable to load the latest dashboard data." /> : null}
-          {latestEvent ? (
-            <div className="snapshot-card">
-              <div className="snapshot-head">
-                <Badge tone={toneForRisk(latestAnalysis?.risk_level)}>{latestAnalysis?.risk_level ?? "watch"}</Badge>
-                <Badge tone="info">{latestAnalysis?.category ?? "Unclassified"}</Badge>
-                <span>{latestEvent.source ?? "Unknown source"}</span>
-                <span>{latestEvent.published_at ? formatRelativeTime(latestEvent.published_at) : "No date"}</span>
+            {/* Countries */}
+            <div className="panel">
+              <div className="panel-header">
+                <h2>Countries at Risk</h2>
               </div>
-              <h3>{latestEvent.title}</h3>
-              <p>{latestAnalysis?.summary ?? latestEvent.description ?? "No summary available yet."}</p>
-              <div className="snapshot-stats">
-                <span>Importance <strong>{percent(latestAnalysis?.importance_score)}</strong></span>
-                <span>Confidence <strong>{percent(latestAnalysis?.confidence_score)}</strong></span>
-                <span>Risk <strong>{latestAnalysis?.risk_level ?? "Unknown"}</strong></span>
+              <div className="panel-body">
+                {topCountries.length ? (
+                  <div className="impact-list">
+                    {topCountries.map(([country, count], i) => (
+                      <div key={country} className="impact-row">
+                        <span className="impact-rank">#{i + 1}</span>
+                        <span className="impact-label">{country}</span>
+                        <div className="impact-bar-wrap">
+                          <div className="impact-bar" style={{ width: `${Math.min(100, (count / (topCountries[0]?.[1] ?? 1)) * 100)}%` }} />
+                        </div>
+                        <span className="impact-count">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyBlock message="Analyzing countries..." />
+                )}
               </div>
             </div>
-          ) : (
-            <EmptyBlock message="No event data available for the dashboard snapshot." />
-          )}
-        </Panel>
-      </section>
+
+            {/* Assets */}
+            <div className="panel">
+              <div className="panel-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                  <BarChart2 size={12} color="var(--accent)" />
+                  <h2>Asset Exposure</h2>
+                </div>
+                <Link to="/market-intelligence" className="view-link" style={{ fontSize: "0.62rem" }}>DETAIL →</Link>
+              </div>
+              <div className="panel-body">
+                {topAssets.length ? (
+                  <div className="impact-list">
+                    {topAssets.map(([asset, count], i) => (
+                      <div key={asset} className="impact-row">
+                        <span className="impact-rank">#{i + 1}</span>
+                        <span className="impact-label">{asset}</span>
+                        <div className="impact-bar-wrap">
+                          <div className="impact-bar accent-bar" style={{ width: `${Math.min(100, (count / (topAssets[0]?.[1] ?? 1)) * 100)}%` }} />
+                        </div>
+                        <span className="impact-count">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyBlock message="Analyzing assets..." />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+function MetricInline({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <section className="panel intelligence-panel">
-      <div className="panel-header">
-        <div>
-          <h2>{title}</h2>
-          <p>{subtitle}</p>
-        </div>
-      </div>
-      {children}
-    </section>
+    <div className="metric-inline">
+      <span className="metric-inline-label">{label}</span>
+      <motion.span
+        className={`metric-inline-value ${tone ?? ""}`}
+        key={value}
+        initial={{ opacity: 0.5, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.25 }}
+      >
+        {value}
+      </motion.span>
+    </div>
   );
-}
-
-function Metric({ label, value, trend }: { label: string; value: number; trend: string }) {
-  return (
-    <article className="metric intelligence-metric">
-      <span>{label}</span>
-      <strong>{value.toLocaleString()}</strong>
-      <small>{trend}</small>
-    </article>
-  );
-}
-
-function Signal({ label, active }: { label: string; active: boolean }) {
-  return (
-    <span className={active ? "signal signal--active" : "signal signal--down"}>
-      <i />
-      {label}
-    </span>
-  );
-}
-
-function chartColor(index: number) {
-  const colors = ["#28b7c4", "#35b88d", "#f7b955", "#ff6b6b", "#8fb3ff", "#a8d56f"];
-  return colors[index % colors.length];
-}
-
-function exposureGradient(items: { label: string; count: number }[]) {
-  const colors = ["#28b7c4", "#35b88d", "#f7b955", "#ff6b6b", "#8fb3ff", "#a8d56f"];
-  const total = Math.max(items.reduce((sum, item) => sum + item.count, 0), 1);
-  let cursor = 0;
-  const slices = items.map((item, index) => {
-    const start = (cursor / total) * 100;
-    cursor += item.count;
-    const end = (cursor / total) * 100;
-    return `${colors[index % colors.length]} ${start}% ${end}%`;
-  });
-  return `conic-gradient(${slices.join(", ")})`;
 }

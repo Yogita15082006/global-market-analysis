@@ -14,6 +14,12 @@ async def run_analysis(
     """Manually trigger AI analysis for unanalyzed events."""
     return await analysis_service.run_analysis(batch_size=batch_size)
 
+@router.post("/{event_id}/generate")
+async def generate_analysis(event_id: str):
+    """Force generate deep analysis for a specific event."""
+    # We trigger run_analysis and just pass. Wait, let's implement a specific method in the service.
+    return await analysis_service.run_analysis_for_event(event_id)
+
 
 @router.get("/", response_model=AnalysisListResponse)
 async def list_analysis(

@@ -5,7 +5,9 @@ import { Dashboard } from "@/pages/Dashboard";
 import { EventDetails } from "@/pages/EventDetails";
 import { CrisisFeed } from "@/pages/CrisisFeed";
 import { MarketIntelligence } from "@/pages/MarketIntelligence";
+import { SourceAnalytics } from "@/pages/SourceAnalytics";
 import { Assistant } from "@/pages/Assistant";
+import { Executive } from "@/pages/Executive";
 import "./styles.css";
 
 const queryClient = new QueryClient();
@@ -20,7 +22,9 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/crisis-feed" element={<CrisisFeed />} />
             <Route path="/market-intelligence" element={<MarketIntelligence />} />
+            <Route path="/source-analytics" element={<SourceAnalytics />} />
             <Route path="/assistant" element={<Assistant />} />
+            <Route path="/executive" element={<Executive />} />
             <Route path="/events/:eventId" element={<EventDetails />} />
           </Routes>
         </Shell>
