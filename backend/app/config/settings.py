@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Global Event Intelligence Platform"
     app_env: Literal["development", "staging", "production"] = "development"
-    debug: bool = True
+    # V-08: Default to False — must explicitly set DEBUG=true in .env to enable Swagger/test-db
+    debug: bool = False
 
     api_prefix: str = "/api"
 

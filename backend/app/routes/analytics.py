@@ -1,6 +1,7 @@
 import logging
 from collections import Counter
 from fastapi import APIRouter, HTTPException
+from app.config.settings import get_settings
 from app.database.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -106,11 +107,15 @@ def get_source_analytics():
         
     except Exception as exc:
         error_msg = str(exc)
-        if "PGRST205" in error_msg and "event_sources" in error_msg:
-            logger.exception("Database schema error in analytics/sources")
-            raise HTTPException(
-                status_code=500, 
-                detail="Database schema incomplete: Missing 'event_sources' table. Please execute '001_deep_analysis_schema.sql' in your Supabase SQL Editor."
-            )
         logger.exception("Failed to fetch analytics sources")
-        raise HTTPException(status_code=500, detail=f"Database query failed: {error_msg}")
+        # V-07: Log full error server-side; return generic message to client in production
+        settings = get_settings()
+        if "PGRST205" in error_msg and "event_sources" in error_msg:
+            detail = (
+                "Database schema incomplete: Missing 'event_sources' table."
+                if settings.debug
+                else "Analytics data is unavailable. Contact the administrator."
+            )
+            raise HTTPException(status_code=500, detail=detail)
+        detail = f"Database query failed: {error_msg}" if settings.debug else "An internal error occurred"
+        raise HTTPException(status_code=500, detail=detail)
