@@ -33,11 +33,47 @@ export const analysisApi = {
 };
 
 export const authApi = {
-  status: () => apiClient.get("/api/auth/status").then((r) => r.data),
-  listSaved: () => apiClient.get("/api/auth/saved").then((r) => r.data),
+  /** Check if the current session is valid. Returns null when unauthenticated. */
+  status: () =>
+    apiClient
+      .get("/api/auth/status")
+      .then((r) => r.data as { authenticated: boolean; user_id: string; email: string })
+      .catch((err) => {
+        // 401 = not logged in (expected), anything else is unexpected
+        if (err?.response?.status === 401) return null;
+        throw err;
+      }),
+
+  /** List events saved by the current user. Returns [] when unauthenticated. */
+  listSaved: () =>
+    apiClient
+      .get("/api/auth/saved")
+      .then((r) => r.data as { saved: unknown[]; total: number })
+      .catch((err) => {
+        if (err?.response?.status === 401) return { saved: [], total: 0 };
+        throw err;
+      }),
+
+  /** Save an event. Returns null when unauthenticated. */
   saveEvent: (eventId: string) =>
-    apiClient.post("/api/auth/saved", { event_id: eventId }).then((r) => r.data),
-  unsaveEvent: (eventId: string) => apiClient.delete(`/api/auth/saved/${eventId}`),
+    apiClient
+      .post("/api/auth/saved", { event_id: eventId })
+      .then((r) => r.data)
+      .catch((err) => {
+        if (err?.response?.status === 401) return null;
+        if (err?.response?.status === 409) return { status: "already_saved", event_id: eventId };
+        throw err;
+      }),
+
+  /** Remove a saved event. Returns null when unauthenticated or not found. */
+  unsaveEvent: (eventId: string) =>
+    apiClient
+      .delete(`/api/auth/saved/${eventId}`)
+      .then((r) => r.data)
+      .catch((err) => {
+        if (err?.response?.status === 401 || err?.response?.status === 404) return null;
+        throw err;
+      }),
 };
 
 export const chatApi = {

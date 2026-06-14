@@ -73,11 +73,13 @@ class AnalysisListResponse(BaseModel):
 
 
 class ChatAskRequest(BaseModel):
+    """Request body for POST /api/chat/ask.
+
+    Note: ``user_id`` is intentionally absent. The server derives it from the
+    verified JWT token to prevent IDOR / spoofing (V-05 fix).
+    """
+
     question: str = Field(min_length=3, max_length=1000)
-    user_id: str | None = Field(
-        default=None,
-        description="Optional Supabase auth user UUID for chat_history storage",
-    )
 
 
 class ChatSource(BaseModel):
