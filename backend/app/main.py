@@ -5,13 +5,13 @@ from typing import Callable
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config.settings import get_settings
 from app.core.exceptions import SupabaseConnectionError, SupabaseQueryError
+from app.core.limiter import limiter
 from app.database.supabase_client import log_supabase_startup
 from app.models.schemas import TestDbResponse
 from app.routes.database import test_database_connection
@@ -33,21 +33,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
-
-def _rate_limit_key(request: Request) -> str:
-    """Key rate limits by authenticated user id when available, else by remote IP.
-
-    This prevents a single user from exhausting limits across different IPs
-    and avoids punishing other users when one IP is shared (e.g. NAT/proxy).
-    """
-    user = getattr(request.state, "user", None)
-    if isinstance(user, dict) and user.get("id"):
-        return f"user:{user['id']}"
-    return get_remote_address(request)
-
-
-# Global limiter instance — imported by route modules via app.state.limiter
-limiter = Limiter(key_func=_rate_limit_key, default_limits=[])
 
 
 @asynccontextmanager

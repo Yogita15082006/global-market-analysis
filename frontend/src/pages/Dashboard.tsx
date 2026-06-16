@@ -116,18 +116,23 @@ export function Dashboard() {
         </div>
         <div className="intel-ribbon-track">
           <div className="intel-ribbon-inner">
-            {[...ribbonEvents, ...ribbonEvents].map((e, i) => (
-              <span key={i} className="ribbon-item">
-                <span className={`priority-tag ${e.intelligence_priority?.toLowerCase() ?? "medium"}`}>
-                  {e.intelligence_priority ?? "MED"}
-                </span>
-                <span className="ribbon-text">{e.title}</span>
-                <span className="ribbon-time">{formatRelativeTime(e.published_at ?? "")}</span>
-                <span className="ribbon-sep"><TrendingUp size={10} /></span>
-              </span>
-            ))}
-            {ribbonEvents.length === 0 && (
-              <span className="ribbon-item" style={{ color: "var(--muted)" }}>Monitoring global intelligence streams...</span>
+            {isLoading ? (
+              <span className="ribbon-item" style={{ color: "var(--muted)" }}>Loading live intelligence streams...</span>
+            ) : isError ? (
+              <span className="ribbon-item" style={{ color: "var(--critical)" }}>System monitoring error: Could not connect to intelligence feed.</span>
+            ) : ribbonEvents.length === 0 ? (
+              <span className="ribbon-item" style={{ color: "var(--muted)" }}>Monitoring global intelligence streams... No critical items found.</span>
+            ) : (
+              [...ribbonEvents, ...ribbonEvents].map((e, i) => (
+                <Link to={`/events/${e.id}`} key={`${e.id}-${i}`} className="ribbon-item hover-effect" style={{ textDecoration: "none", color: "inherit", cursor: "pointer" }}>
+                  <span className={`priority-tag ${e.intelligence_priority?.toLowerCase() ?? "medium"}`}>
+                    {e.intelligence_priority ?? "MED"}
+                  </span>
+                  <span className="ribbon-text">{e.title}</span>
+                  <span className="ribbon-time">{formatRelativeTime(e.published_at ?? "")}</span>
+                  <span className="ribbon-sep"><TrendingUp size={10} /></span>
+                </Link>
+              ))
             )}
           </div>
         </div>

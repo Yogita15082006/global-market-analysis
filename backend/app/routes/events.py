@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.auth import AuthUser, require_admin
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.schemas import EventsListResponse, NewsFetchStats
 from app.services.news_service import NewsService
 

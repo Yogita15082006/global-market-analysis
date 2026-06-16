@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.core.auth import AuthUser, get_optional_user
-from app.main import limiter
+from app.core.limiter import limiter
 from app.models.schemas import ChatAskRequest, ChatAskResponse
 from app.services.chat_service import ChatService
 
