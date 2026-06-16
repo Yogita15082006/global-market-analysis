@@ -35,6 +35,7 @@ class Settings(BaseSettings):
             "http://127.0.0.1:5173",
             "https://global-market-analysis-8g8oe0nvc.vercel.app",
             "https://global-market-analysis-smoky.vercel.app",
+            "https://global-market-analysis-10gpa4oge-yogita15082006s-projects.vercel.app",
         ]
     )
 
