@@ -894,10 +894,10 @@ ai-services/
     ## 🌐 Live Deployment
 
 ### Frontend (Vercel)
-https://global-market-analysis-10gpa4oge-yogita15082006s-projects.vercel.app
+[open Frontend](https://global-market-analysis-10gpa4oge-yogita15082006s-projects.vercel.app)
 
 ### Backend (Render)
-https://global-market-analysis-nnub.onrender.com
+[open Backend](https://global-market-analysis-nnub.onrender.com)
 
 ---
 
